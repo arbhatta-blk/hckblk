@@ -1,0 +1,153 @@
+VPC- east-1/west2/ohio
+Security Group with inbound rule
+key pair to access EC2
+Policy - HyperledgerFabric
+
+arn:aws:iam::383879295969:instance-profile/HyperledgerFabric-ECR-S3-Access
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:GetAuthorizationToken",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:GetRepositoryPolicy",
+                "ecr:DescribeRepositories",
+                "ecr:ListImages",
+                "ecr:DescribeImages",
+                "ecr:BatchGetImage",
+                "s3:Get*",
+                "s3:List*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+Role
+
+https://docs.aws.amazon.com/blockchain-templates/latest/developerguide/blockchain-templates-hyperledger.html
+
+
+
+
+# If CFN stack fails with docker-compose error
+ssh -i "my_new_key.pem" ec2-user@ec2-18-237-255-32.us-west-2.compute.amazonaws.com
+
+# Install docker-compose
+sudo curl -L https://github.com/docker/compose/releases/download/1.21.0/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+
+vi /home/ec2-user/HyperLedger-BasicNetwork/artifacts/docker-compose/docker-compose-cli.yaml
+	CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/gi
+
+cd /home/ec2-user/HyperLedger-BasicNetwork/artifacts/docker-compose/
+docker-compose -f docker-compose-cli.yaml ps
+
+WARNING: The IMAGE_TAG variable is not set. Defaulting to a blank string.
+         Name                       Command               State                       Ports
+----------------------------------------------------------------------------------------------------------------
+cli                      /bin/bash                        Up
+fabric-explorer          /bin/sh -c /opt/blockchain ...   Up      0.0.0.0:8080->8080/tcp
+fabric-explorer-db       docker-entrypoint.sh postgres    Up      0.0.0.0:5432->5432/tcp
+orderer.example.com      orderer                          Up      0.0.0.0:7050->7050/tcp
+peer0.org1.example.com   peer node start                  Up      0.0.0.0:7051->7051/tcp, 0.0.0.0:7053->7053/tcp
+peer0.org2.example.com   peer node start                  Up      0.0.0.0:8051->7051/tcp, 0.0.0.0:8053->7053/tcp
+peer0.org3.example.com   peer node start                  Up      0.0.0.0:9051->7051/tcp, 0.0.0.0:9053->7053/tcp
+
+IMAGE_TAG=latest docker-compose -f docker-compose-cli.yaml up -d --no-deps cli
+
+docker cp ~/car_registry.go cli:/opt/gopath/src/github.com/chaincode/
+
+docker-compose -f docker-compose-cli.yaml exec cli bash
+
+# from within container
+export | grep PEER | grep -v TLS
+declare -x CORE_PEER_ADDRESS="peer0.org1.example.com:7051"
+declare -x CORE_PEER_ID="cli"
+declare -x CORE_PEER_LOCALMSPID="org1MSP"
+declare -x CORE_PEER_MSPCONFIGPATH="/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp"
+
+
+docker exec -it cli bash
+export ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+cd /opt/gopath/src/github.com/hyperledger/fabric/peer/
+
+# Default peer node can be found from export | grep PEER | grep -v TLS
+# -n is to name the contract -v version -p chaincode path relative to $GOPATH/src/
+peer chaincode install -n mydapp -v 1.0 -p github.com/chaincode/
+
+# peer chaincode install -n mydapp -v 1.0 -p github.com/chaincode/
+2020-05-11 14:33:04.576 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 001 Using default escc
+2020-05-11 14:33:04.576 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 002 Using default vscc
+2020-05-11 14:33:04.728 UTC [main] main -> INFO 003 Exiting.....
+
+escc => Endorsement System Chain Code 
+default system says that any peers can endorse the transaction
+
+vscc => Validation System Chain Code 
+default rule says that all peers will validate and commit tx executed using this chaincode
+
+# list chaincodes installed
+peer chaincode list --installed
+
+Get installed chaincodes on peer:
+Name: mydapp, Version: 1.0, Path: github.com/chaincode/, Id: e3d7c4949f121532a601573996b11cbea670493c0964c2f63718ce4a964d3a2b
+2020-05-11 14:36:07.171 UTC [main] main -> INFO 001 Exiting.....
+
+# enable TLS, first need to set Certificate Authority
+export ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+# the orderer in our example is a docker container named orderer.example.com which is running on 7050
+# -c indicates any additional arguments that we want to pass as arguments to the Init method to the chaincode
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -v 1.0 -c '{"Args":[]}'
+
+2020-05-11 16:55:43.876 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 001 Using default escc
+2020-05-11 16:55:43.877 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 002 Using default vscc
+2020-05-11 16:55:57.415 UTC [main] main -> INFO 003 Exiting.....
+
+# troubleshooting
+# mkdir -p $GOPATH/src/github.com/hyperledger
+# cd $GOPATH/src/github.com/hyperledger
+# git clone -b release-1.2 https://github.com/hyperledger/fabric.git
+# go get -u github.com/hyperledger/fabric/core/chaincode/shim
+
+
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["createCar", "CAR01", "Volkswagen", "Passat", "Yellow", "Arka"]}'
+
+peer chaincode query -C mychannel -n mydapp -c '{"Args":["queryCar", "CAR01"]}'
+
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["changeCarOwner", "CAR01", "Arjun"]}'
+
+# peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["changeCarOwner", "CAR01", "Arjun"]}'
+2020-05-11 17:12:27.160 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 001 Using default escc
+2020-05-11 17:12:27.160 UTC [chaincodeCmd] checkChaincodeCmdParams -> INFO 002 Using default vscc
+2020-05-11 17:12:27.166 UTC [chaincodeCmd] chaincodeInvokeOrQuery -> INFO 003 Chaincode invoke successful. result: status:200
+2020-05-11 17:12:27.167 UTC [main] main -> INFO 004 Exiting.....
+
+
+
+
+#######################
+
+
+
+
+# Create 2 new blocks
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["createCar", "CAR02", "Volkswagen", "Passat", "Black", "Anushka"]}'
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["createCar", "CAR03", "Volkswagen", "Polo", "Blue", "Virat"]}'
+# Check Explorer that 2 new blocks, transactions have been added
+
+# query the blocks
+peer chaincode query -C mychannel -n mydapp -c '{"Args":["queryCar", "CAR02"]}'
+peer chaincode query -C mychannel -n mydapp -c '{"Args":["queryCar", "CAR03"]}'
+# Check Explorer that no new blocks have been added for query
+
+# update the CAR02 block (identified by Car ID)
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile $ORDERER_CA -C mychannel -n mydapp -c '{"Args":["changeCarOwner", "CAR02", "Jennifer"]}'
+# query the block post update
+peer chaincode query -C mychannel -n mydapp -c '{"Args":["queryCar", "CAR02"]}'
+# Check Explorer that 1 new block, transaction has been added
